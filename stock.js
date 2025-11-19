@@ -1,415 +1,343 @@
-# stock-checker
-stock-checker
-/* ===========================================
-   통합 재고 북마크 스크립트 (stock.js)
-   - 롯데ON/롯데백화점(Vue)
-   - 롯데IMALL
-   - SSG
-   - SSF
-   - GrandStage(a-rt)
-   디버깅 / 단계별 로그 포함
-=========================================== */
-
-(function () {
-  // ===== 공통 디버깅 유틸 =====
-  var DEBUG = true;
-  var lastStep = '초기화 전';
-  var currentSite = location.hostname;
-
-  function logStep(step) {
-    lastStep = step;
-    if (DEBUG && window.console) {
-      console.log('[재고스크립트]', step);
-    }
+(function() {
+  'use strict';
+  
+  console.log('[STOCK CHECKER] START - v1.0');
+  console.log('[STOCK CHECKER] Current URL:', window.location.href);
+  
+  // 기존 UI 제거
+  const existingUI = document.getElementById('stock-checker-ui');
+  if (existingUI) {
+    existingUI.remove();
   }
-
-  function fail(message) {
-    var msg =
-      '❌ 재고 파싱 실패\n' +
-      '- 호스트: ' + currentSite + '\n' +
-      '- 마지막 단계: ' + lastStep + '\n' +
-      '- 상세: ' + message;
-    alert(msg);
-  }
-
-  // ===== 공통 UI (네가 준 롯백 UI 기반) =====
-  function showUI(groups, sourceLabel) {
-    if (!groups || !groups.length) {
-      fail('옵션 그룹이 비어 있음');
-      return;
-    }
-
-    // 배경 오버레이
-    var o = document.createElement('div');
-    o.style.cssText =
-      'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:999998;backdrop-filter:blur(4px);';
-
-    // 메인 카드
-    var m = document.createElement('div');
-    m.style.cssText =
-      'position:fixed;top:20px;right:20px;background:white;padding:22px;border-radius:16px;' +
-      'box-shadow:0 10px 40px rgba(0,0,0,0.35);z-index:999999;max-width:420px;max-height:85vh;' +
-      'overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
-
-    document.body.appendChild(o);
-    document.body.appendChild(m);
-
-    var h = '';
-    h +=
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;' +
-      'padding-bottom:16px;border-bottom:2px solid #e5e7eb;">' +
-      '<div style="display:flex;flex-direction:column;gap:2px;">' +
-      '<h3 style="margin:0;font-size:20px;color:#111;font-weight:700;display:flex;align-items:center;gap:8px;">' +
-      '<span>📊</span>실재고 현황</h3>';
-
-    if (sourceLabel) {
-      h +=
-        '<span style="font-size:11px;color:#6b7280;">' +
-        sourceLabel +
-        '</span>';
-    }
-
-    h +=
-      '</div>' +
-      '<button onclick="this.closest(\'div[style*=&quot;position:fixed&quot;]\').remove();' +
-      'document.querySelectorAll(\'div[style*=&quot;background:rgba(0,0,0,0.6)&quot;]\')[0].remove();" ' +
-      'style="background:#ef4444;color:white;border:none;padding:8px 15px;border-radius:8px;' +
-      'cursor:pointer;font-size:13px;font-weight:600;">✕</button></div>';
-
-    var totalQty = 0;
-    var optCount = 0;
-
-    // 그룹별 옵션 출력
-    for (var gi = 0; gi < groups.length; gi++) {
-      var g = groups[gi];
-      h += '<div style="margin-bottom:14px;">';
-      h +=
-        '<div style="font-weight:600;color:#667eea;margin-bottom:12px;font-size:15px;' +
-        'display:flex;align-items:center;gap:6px;">' +
-        '<span style="font-size:18px;">👕</span>' +
-        (g.title || '옵션') +
-        '</div>';
-
-      if (g.options && g.options.length > 0) {
-        for (var oi = 0; oi < g.options.length; oi++) {
-          var item = g.options[oi];
-          var qty = item.qty * 1 || 0;
-          var isZero = qty === 0;
-          var bgGrad = isZero
-            ? 'linear-gradient(135deg,#fee2e2 0%,#fecaca 100%)'
-            : 'linear-gradient(135deg,#d1fae5 0%,#a7f3d0 100%)';
-          var borderColor = isZero ? '#fca5a5' : '#6ee7b7';
-          var textColor = isZero ? '#991b1b' : '#065f46';
-          var qtyColor = isZero ? '#dc2626' : '#059669';
-          var icon = isZero ? '❌' : '✅';
-
-          optCount++;
-          totalQty += qty;
-
-          h +=
-            '<div style="display:flex;justify-content:space-between;align-items:center;' +
-            'padding:12px 16px;background:' +
-            bgGrad +
-            ';border-radius:10px;margin-bottom:7px;border:2px solid ' +
-            borderColor +
-            ';">' +
-            '<div style="display:flex;align-items:center;gap:8px;">' +
-            '<span style="font-size:16px;">' +
-            icon +
-            '</span>' +
-            '<span style="font-size:14px;color:#1f2937;font-weight:600;">' +
-            (item.label || '-') +
-            '</span></div>' +
-            '<div style="display:flex;align-items:center;gap:8px;">' +
-            '<span style="font-size:18px;font-weight:800;color:' +
-            qtyColor +
-            ';">' +
-            qty +
-            '</span>' +
-            '<span style="font-size:12px;color:' +
-            textColor +
-            ';font-weight:600;">개</span></div>' +
-            '</div>';
-        }
-      }
-
-      h += '</div>';
-    }
-
-    // 전체 통계
-    if (optCount > 0) {
-      h +=
-        '<div style="margin-top:20px;padding:16px;background:linear-gradient(135deg,#dbeafe 0%,#bfdbfe 100%);' +
-        'border-radius:12px;border-left:5px solid #3b82f6;">' +
-        '<div style="font-size:14px;color:#1e3a8a;margin-bottom:8px;font-weight:700;">📈 전체 통계</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-        '<span style="font-size:13px;color:#1e40af;">총 재고</span>' +
-        '<span style="font-size:22px;font-weight:800;color:#1d4ed8;">' +
-        totalQty +
-        '<span style="font-size:14px;margin-left:4px;">개</span></span>' +
-        '</div>' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;">' +
-        '<span style="font-size:13px;color:#1e40af;">옵션 수</span>' +
-        '<span style="font-size:16px;font-weight:700;color:#2563eb;">' +
-        optCount +
-        '개</span>' +
-        '</div>' +
-        '</div>';
-    }
-
-    m.innerHTML = h;
-
-    // 배경 클릭으로도 닫기
-    o.onclick = function () {
-      m.remove();
-      o.remove();
-    };
-  }
-
-  // ===== 사이트별 파서 =====
-
-  // 1) 롯데ON / 롯데백화점 (Vue 스토어 기반)
-  function parseLotteOnVue() {
-    logStep('롯데ON/롯백: Vue 스토어 탐색 시작');
-    var d = null;
-    var nodes = document.querySelectorAll('*');
-    for (var i = 0; i < nodes.length; i++) {
-      var e = nodes[i];
-      if (d) break;
+  
+  // 사이트별 재고 파서
+  const parsers = {
+    // 롯데ON & 롯데백화점 (Vue 스토어)
+    lotteon: function() {
+      console.log('[LOTTEON/롯백] 파싱 시작');
       try {
-        if (
-          e.__vue__ &&
-          e.__vue__.$store &&
-          e.__vue__.$store.state &&
-          e.__vue__.$store.state.product
-        ) {
-          d = e.__vue__.$store.state.product;
-        }
-      } catch (err) {}
-    }
-
-    if (!d || !d.optionInfo) {
-      logStep('롯데ON/롯백: optionInfo 없음');
-      return null;
-    }
-
-    logStep('롯데ON/롯백: optionInfo 파싱 시작');
-    var info = d.optionInfo;
-    var groups = [];
-
-    if (info.optionList && info.optionList.length > 0) {
-      for (var j = 0; j < info.optionList.length; j++) {
-        var opt = info.optionList[j];
-        var g = {
-          title: opt.title || opt.name || '옵션',
-          options: []
-        };
-
-        if (opt.options && opt.options.length > 0) {
-          for (var k = 0; k < opt.options.length; k++) {
-            var item = opt.options[k];
-            var stockData = null;
-            var qty = 0;
-            if (info.optionMappingInfo && info.optionMappingInfo[item.value]) {
-              stockData = info.optionMappingInfo[item.value];
-              qty =
-                stockData.stkQty ||
-                stockData.remainQty ||
-                stockData.stockQty ||
-                0;
+        const vueElements = document.querySelectorAll('[data-v-app]');
+        for (let el of vueElements) {
+          if (el.__vue__ && el.__vue__.$store) {
+            const store = el.__vue__.$store.state;
+            if (store.product && store.product.optionInfo) {
+              const info = store.product.optionInfo;
+              console.log('[LOTTEON/롯백] Vue Store 발견:', info);
+              
+              let items = [];
+              
+              // optionList 방식
+              if (info.optionList && Array.isArray(info.optionList)) {
+                items = info.optionList.map(opt => ({
+                  name: opt.optionNm || opt.optionName || '옵션',
+                  stock: opt.stkQty || opt.stockQty || opt.remainQty || 0
+                }));
+              }
+              
+              // optionMappingInfo 방식
+              if (items.length === 0 && info.optionMappingInfo) {
+                for (let key in info.optionMappingInfo) {
+                  const opt = info.optionMappingInfo[key];
+                  items.push({
+                    name: opt.optionNm || opt.optionName || key,
+                    stock: opt.stkQty || opt.stockQty || opt.remainQty || 0
+                  });
+                }
+              }
+              
+              if (items.length > 0) {
+                console.log('[LOTTEON/롯백] 파싱 완료:', items);
+                return items;
+              }
             }
-            g.options.push({
-              label: item.label || item.name || item.value,
-              qty: qty
-            });
           }
         }
-        groups.push(g);
+      } catch (e) {
+        console.error('[LOTTEON/롯백] 파싱 오류:', e);
       }
-    }
-
-    if (!groups.length) {
-      logStep('롯데ON/롯백: groups 비어 있음');
+      return null;
+    },
+    
+    // 롯데IMALL
+    lotteimall: function() {
+      console.log('[LOTTEIMALL] 파싱 시작');
+      try {
+        const options = document.querySelectorAll('option[data-stock], option[data-qty], option[data-stock-qty]');
+        if (options.length === 0) return null;
+        
+        const items = Array.from(options).map(opt => {
+          const stock = opt.dataset.stock || opt.dataset.qty || opt.dataset.stockQty || '0';
+          return {
+            name: opt.textContent.trim(),
+            stock: parseInt(stock) || 0
+          };
+        }).filter(item => item.name && item.name !== '선택');
+        
+        console.log('[LOTTEIMALL] 파싱 완료:', items);
+        return items.length > 0 ? items : null;
+      } catch (e) {
+        console.error('[LOTTEIMALL] 파싱 오류:', e);
+      }
+      return null;
+    },
+    
+    // SSG
+    ssg: function() {
+      console.log('[SSG] 파싱 시작');
+      try {
+        // 다양한 셀렉터 시도
+        const selectors = [
+          '[data-ob-stock-qty]',
+          '[data-stock-qty]',
+          '[data-qty]',
+          'option[data-stock]'
+        ];
+        
+        for (let selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            const items = Array.from(elements).map(el => {
+              const stock = el.dataset.obStockQty || el.dataset.stockQty || el.dataset.qty || el.dataset.stock || '0';
+              const name = el.textContent.trim() || el.dataset.optionNm || '옵션';
+              return {
+                name: name,
+                stock: parseInt(stock) || 0
+              };
+            }).filter(item => item.name && item.name !== '선택' && item.name !== '');
+            
+            if (items.length > 0) {
+              console.log('[SSG] 파싱 완료:', items);
+              return items;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[SSG] 파싱 오류:', e);
+      }
+      return null;
+    },
+    
+    // SSF Shop
+    ssfshop: function() {
+      console.log('[SSFSHOP] 파싱 시작');
+      try {
+        const selectors = [
+          '[data-stockqty]',
+          '[data-stock-qty]',
+          'option[data-stock]'
+        ];
+        
+        for (let selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            const items = Array.from(elements).map(el => {
+              const stock = el.dataset.stockqty || el.dataset.stockQty || el.dataset.stock || '0';
+              const name = el.textContent.trim() || '옵션';
+              return {
+                name: name,
+                stock: parseInt(stock) || 0
+              };
+            }).filter(item => item.name && item.name !== '선택');
+            
+            if (items.length > 0) {
+              console.log('[SSFSHOP] 파싱 완료:', items);
+              return items;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[SSFSHOP] 파싱 오류:', e);
+      }
+      return null;
+    },
+    
+    // GrandStage
+    grandstage: function() {
+      console.log('[GRANDSTAGE] 파싱 시작');
+      try {
+        const selectors = [
+          '[data-stock]',
+          '[data-qty]',
+          '[data-remain-qty]',
+          'option[data-stock]'
+        ];
+        
+        for (let selector of selectors) {
+          const elements = document.querySelectorAll(selector);
+          if (elements.length > 0) {
+            const items = Array.from(elements).map(el => {
+              const stock = el.dataset.stock || el.dataset.qty || el.dataset.remainQty || '0';
+              const name = el.textContent.trim() || '옵션';
+              return {
+                name: name,
+                stock: parseInt(stock) || 0
+              };
+            }).filter(item => item.name && item.name !== '선택');
+            
+            if (items.length > 0) {
+              console.log('[GRANDSTAGE] 파싱 완료:', items);
+              return items;
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[GRANDSTAGE] 파싱 오류:', e);
+      }
       return null;
     }
-
-    return { groups: groups, source: '롯데ON / 롯데백화점(Vue)' };
+  };
+  
+  // 사이트 감지 및 파서 실행
+  function detectAndParse() {
+    const hostname = window.location.hostname;
+    console.log('[STOCK CHECKER] 호스트명:', hostname);
+    
+    let result = null;
+    
+    if (hostname.includes('lotteon.com')) {
+      result = parsers.lotteon();
+    } else if (hostname.includes('lotteimall.com')) {
+      result = parsers.lotteimall();
+    } else if (hostname.includes('ssg.com')) {
+      result = parsers.ssg();
+    } else if (hostname.includes('ssfshop.com')) {
+      result = parsers.ssfshop();
+    } else if (hostname.includes('a-rt.com')) {
+      result = parsers.grandstage();
+    }
+    
+    return result;
   }
-
-  // 2) 롯데IMALL (lotteiMall)
-  function parseLotteImall() {
-    logStep('롯데IMALL: 파싱 시작');
-    var groups = [];
-    var opts = document.querySelectorAll(
-      'option[data-stock], option[data-qty], option[data-stock-qty]'
-    );
-
-    if (opts.length) {
-      var g = { title: '옵션', options: [] };
-      for (var i = 0; i < opts.length; i++) {
-        var o = opts[i];
-        var label = (o.innerText || o.textContent || '').trim();
-        if (!label) continue;
-        var raw =
-          o.getAttribute('data-stock') ||
-          o.getAttribute('data-qty') ||
-          o.getAttribute('data-stock-qty') ||
-          '';
-        var qty = parseInt(raw.replace(/[^0-9]/g, ''), 10);
-        if (isNaN(qty)) qty = 0;
-        g.options.push({ label: label, qty: qty });
-      }
-      if (g.options.length) {
-        groups.push(g);
-      }
-    }
-
-    if (!groups.length) {
-      logStep('롯데IMALL: data-* 기반 옵션 없음');
-      return null;
-    }
-    return { groups: groups, source: '롯데IMALL(추정)' };
-  }
-
-  // 3) SSG
-  function parseSSG() {
-    logStep('SSG: 파싱 시작');
-    var groups = [];
-    var items = document.querySelectorAll(
-      '[data-ob-stock-qty],[data-stock-qty],[data-qty],[data-stock]'
-    );
-
-    if (items.length) {
-      var g = { title: '옵션', options: [] };
-      for (var i = 0; i < items.length; i++) {
-        var el = items[i];
-        var label = (el.innerText || el.textContent || '').trim();
-        if (!label) continue;
-        var raw =
-          el.getAttribute('data-ob-stock-qty') ||
-          el.getAttribute('data-stock-qty') ||
-          el.getAttribute('data-qty') ||
-          el.getAttribute('data-stock') ||
-          '';
-        var qty = parseInt(raw.replace(/[^0-9]/g, ''), 10);
-        if (isNaN(qty)) qty = 0;
-        g.options.push({ label: label, qty: qty });
-      }
-      if (g.options.length) {
-        groups.push(g);
-      }
-    }
-
-    if (!groups.length) {
-      logStep('SSG: data-* 기반 옵션 없음');
-      return null;
-    }
-    return { groups: groups, source: 'SSG' };
-  }
-
-  // 4) SSF SHOP
-  function parseSSF() {
-    logStep('SSF: 파싱 시작');
-    var groups = [];
-    var items = document.querySelectorAll(
-      '[data-stockqty],[data-stock-qty],[data-qty],[data-stock]'
-    );
-
-    if (items.length) {
-      var g = { title: '옵션', options: [] };
-      for (var i = 0; i < items.length; i++) {
-        var el = items[i];
-        var label = (el.innerText || el.textContent || '').trim();
-        if (!label) continue;
-        var raw =
-          el.getAttribute('data-stockqty') ||
-          el.getAttribute('data-stock-qty') ||
-          el.getAttribute('data-qty') ||
-          el.getAttribute('data-stock') ||
-          '';
-        var qty = parseInt(raw.replace(/[^0-9]/g, ''), 10);
-        if (isNaN(qty)) qty = 0;
-        g.options.push({ label: label, qty: qty });
-      }
-      if (g.options.length) {
-        groups.push(g);
-      }
-    }
-
-    if (!groups.length) {
-      logStep('SSF: data-* 기반 옵션 없음');
-      return null;
-    }
-    return { groups: groups, source: 'SSF SHOP' };
-  }
-
-  // 5) GrandStage (a-rt)
-  function parseGrandStage() {
-    logStep('GrandStage: 파싱 시작');
-    var groups = [];
-    var items = document.querySelectorAll(
-      '[data-stock],[data-qty],[data-remain-qty],[data-inventory]'
-    );
-
-    if (items.length) {
-      var g = { title: '옵션', options: [] };
-      for (var i = 0; i < items.length; i++) {
-        var el = items[i];
-        var label = (el.innerText || el.textContent || '').trim();
-        if (!label) continue;
-        var raw =
-          el.getAttribute('data-stock') ||
-          el.getAttribute('data-qty') ||
-          el.getAttribute('data-remain-qty') ||
-          el.getAttribute('data-inventory') ||
-          '';
-        var qty = parseInt(raw.replace(/[^0-9]/g, ''), 10);
-        if (isNaN(qty)) qty = 0;
-        g.options.push({ label: label, qty: qty });
-      }
-      if (g.options.length) {
-        groups.push(g);
-      }
-    }
-
-    if (!groups.length) {
-      logStep('GrandStage: data-* 기반 옵션 없음');
-      return null;
-    }
-    return { groups: groups, source: 'GrandStage(a-rt)' };
-  }
-
-  // ===== 라우팅 =====
-  try {
-    logStep('라우팅 시작: ' + currentSite);
-    var result = null;
-
-    if (currentSite.indexOf('lotteon.com') > -1) {
-      result = parseLotteOnVue();
-    } else if (currentSite.indexOf('lotteimall.com') > -1) {
-      result = parseLotteImall();
-    } else if (currentSite.indexOf('ssg.com') > -1) {
-      result = parseSSG();
-    } else if (currentSite.indexOf('ssfshop.com') > -1) {
-      result = parseSSF();
-    } else if (
-      currentSite.indexOf('grandstage.a-rt.com') > -1 ||
-      currentSite.indexOf('a-rt.com') > -1
-    ) {
-      result = parseGrandStage();
-    } else {
-      fail('지원하지 않는 호스트');
+  
+  // UI 렌더링
+  function renderUI(items) {
+    if (!items || items.length === 0) {
+      alert('❌ 이 사이트는 아직 자동 파싱을 지원하지 않습니다.\n\n현재 지원 사이트:\n- 롯데ON\n- 롯데백화점\n- 롯데IMALL\n- SSG\n- SSFShop\n- GrandStage');
       return;
     }
-
-    if (!result || !result.groups || !result.groups.length) {
-      fail('파서 실행 완료했지만 groups가 비어 있음');
-      return;
-    }
-
-    logStep('UI 렌더링');
-    showUI(result.groups, result.source);
-  } catch (err) {
-    fail('예외 발생: ' + (err && err.message ? err.message : err));
+    
+    const totalStock = items.reduce((sum, item) => sum + item.stock, 0);
+    const optionCount = items.length;
+    
+    // Overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'stock-checker-ui';
+    overlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999999;
+      display: flex;
+      justify-content: flex-end;
+      align-items: flex-start;
+      padding: 20px;
+    `;
+    
+    // Modal
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      width: 400px;
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+    
+    // Header
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #e5e7eb;
+    `;
+    header.innerHTML = `
+      <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #111;">📦 재고 조회 결과</h2>
+      <button id="stock-checker-close" style="
+        background: #f3f4f6;
+        border: none;
+        border-radius: 6px;
+        width: 32px;
+        height: 32px;
+        cursor: pointer;
+        font-size: 18px;
+        color: #6b7280;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      ">✕</button>
+    `;
+    
+    // Summary
+    const summary = document.createElement('div');
+    summary.style.cssText = `
+      background: #f9fafb;
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      font-size: 14px;
+      color: #374151;
+    `;
+    summary.innerHTML = `
+      <div style="margin-bottom: 4px;"><strong>총 재고:</strong> ${totalStock.toLocaleString()}개</div>
+      <div><strong>옵션 수:</strong> ${optionCount}개</div>
+    `;
+    
+    // Items
+    const list = document.createElement('div');
+    list.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
+    
+    items.forEach(item => {
+      const hasStock = item.stock > 0;
+      const itemDiv = document.createElement('div');
+      itemDiv.style.cssText = `
+        padding: 12px;
+        border-radius: 8px;
+        background: ${hasStock ? '#f0fdf4' : '#fef2f2'};
+        border: 1px solid ${hasStock ? '#86efac' : '#fca5a5'};
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      `;
+      
+      itemDiv.innerHTML = `
+        <span style="font-size: 14px; color: #111; flex: 1;">${item.name}</span>
+        <span style="
+          font-weight: 700;
+          font-size: 16px;
+          color: ${hasStock ? '#16a34a' : '#dc2626'};
+        ">${item.stock.toLocaleString()}개</span>
+      `;
+      
+      list.appendChild(itemDiv);
+    });
+    
+    // Assemble
+    modal.appendChild(header);
+    modal.appendChild(summary);
+    modal.appendChild(list);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    // Close handlers
+    document.getElementById('stock-checker-close').onclick = () => overlay.remove();
+    overlay.onclick = (e) => {
+      if (e.target === overlay) overlay.remove();
+    };
+    
+    console.log('[STOCK CHECKER] UI 렌더링 완료');
   }
+  
+  // 실행
+  const stockData = detectAndParse();
+  renderUI(stockData);
+  
 })();
