@@ -1,233 +1,425 @@
 (function() {
   'use strict';
-  
-  console.log('[STOCK CHECKER] START - v1.0');
-  console.log('[STOCK CHECKER] Current URL:', window.location.href);
-  
-  // 기존 UI 제거
-  const existingUI = document.getElementById('stock-checker-ui');
-  if (existingUI) {
-    existingUI.remove();
+
+  console.log('[재고] 북마크릿 시작');
+
+  // 이미 실행 중인지 체크
+  if (window.__stockCheckerRunning) {
+    console.log('[재고] 이미 실행 중입니다.');
+    return;
   }
-  
-  // 사이트별 재고 파서
-  const parsers = {
-    // 롯데ON & 롯데백화점 (Vue 스토어)
-    lotteon: function() {
-      console.log('[LOTTEON/롯백] 파싱 시작');
-      try {
-        const vueElements = document.querySelectorAll('[data-v-app]');
-        for (let el of vueElements) {
-          if (el.__vue__ && el.__vue__.$store) {
-            const store = el.__vue__.$store.state;
-            if (store.product && store.product.optionInfo) {
-              const info = store.product.optionInfo;
-              console.log('[LOTTEON/롯백] Vue Store 발견:', info);
-              
-              let items = [];
-              
-              // optionList 방식
-              if (info.optionList && Array.isArray(info.optionList)) {
-                items = info.optionList.map(opt => ({
-                  name: opt.optionNm || opt.optionName || '옵션',
-                  stock: opt.stkQty || opt.stockQty || opt.remainQty || 0
-                }));
-              }
-              
-              // optionMappingInfo 방식
-              if (items.length === 0 && info.optionMappingInfo) {
-                for (let key in info.optionMappingInfo) {
-                  const opt = info.optionMappingInfo[key];
-                  items.push({
-                    name: opt.optionNm || opt.optionName || key,
-                    stock: opt.stkQty || opt.stockQty || opt.remainQty || 0
-                  });
-                }
-              }
-              
-              if (items.length > 0) {
-                console.log('[LOTTEON/롯백] 파싱 완료:', items);
-                return items;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[LOTTEON/롯백] 파싱 오류:', e);
-      }
-      return null;
-    },
-    
-    // 롯데IMALL
-    lotteimall: function() {
-      console.log('[LOTTEIMALL] 파싱 시작');
-      try {
-        const options = document.querySelectorAll('option[data-stock], option[data-qty], option[data-stock-qty]');
-        if (options.length === 0) return null;
-        
-        const items = Array.from(options).map(opt => {
-          const stock = opt.dataset.stock || opt.dataset.qty || opt.dataset.stockQty || '0';
-          return {
-            name: opt.textContent.trim(),
-            stock: parseInt(stock) || 0
-          };
-        }).filter(item => item.name && item.name !== '선택');
-        
-        console.log('[LOTTEIMALL] 파싱 완료:', items);
-        return items.length > 0 ? items : null;
-      } catch (e) {
-        console.error('[LOTTEIMALL] 파싱 오류:', e);
-      }
-      return null;
-    },
-    
-    // SSG
-    ssg: function() {
-      console.log('[SSG] 파싱 시작');
-      try {
-        // 다양한 셀렉터 시도
-        const selectors = [
-          '[data-ob-stock-qty]',
-          '[data-stock-qty]',
-          '[data-qty]',
-          'option[data-stock]'
-        ];
-        
-        for (let selector of selectors) {
-          const elements = document.querySelectorAll(selector);
-          if (elements.length > 0) {
-            const items = Array.from(elements).map(el => {
-              const stock = el.dataset.obStockQty || el.dataset.stockQty || el.dataset.qty || el.dataset.stock || '0';
-              const name = el.textContent.trim() || el.dataset.optionNm || '옵션';
-              return {
-                name: name,
-                stock: parseInt(stock) || 0
-              };
-            }).filter(item => item.name && item.name !== '선택' && item.name !== '');
-            
-            if (items.length > 0) {
-              console.log('[SSG] 파싱 완료:', items);
-              return items;
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[SSG] 파싱 오류:', e);
-      }
-      return null;
-    },
-    
-    // SSF Shop
-    ssfshop: function() {
-      console.log('[SSFSHOP] 파싱 시작');
-      try {
-        const selectors = [
-          '[data-stockqty]',
-          '[data-stock-qty]',
-          'option[data-stock]'
-        ];
-        
-        for (let selector of selectors) {
-          const elements = document.querySelectorAll(selector);
-          if (elements.length > 0) {
-            const items = Array.from(elements).map(el => {
-              const stock = el.dataset.stockqty || el.dataset.stockQty || el.dataset.stock || '0';
-              const name = el.textContent.trim() || '옵션';
-              return {
-                name: name,
-                stock: parseInt(stock) || 0
-              };
-            }).filter(item => item.name && item.name !== '선택');
-            
-            if (items.length > 0) {
-              console.log('[SSFSHOP] 파싱 완료:', items);
-              return items;
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[SSFSHOP] 파싱 오류:', e);
-      }
-      return null;
-    },
-    
-    // GrandStage
-    grandstage: function() {
-      console.log('[GRANDSTAGE] 파싱 시작');
-      try {
-        const selectors = [
-          '[data-stock]',
-          '[data-qty]',
-          '[data-remain-qty]',
-          'option[data-stock]'
-        ];
-        
-        for (let selector of selectors) {
-          const elements = document.querySelectorAll(selector);
-          if (elements.length > 0) {
-            const items = Array.from(elements).map(el => {
-              const stock = el.dataset.stock || el.dataset.qty || el.dataset.remainQty || '0';
-              const name = el.textContent.trim() || '옵션';
-              return {
-                name: name,
-                stock: parseInt(stock) || 0
-              };
-            }).filter(item => item.name && item.name !== '선택');
-            
-            if (items.length > 0) {
-              console.log('[GRANDSTAGE] 파싱 완료:', items);
-              return items;
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[GRANDSTAGE] 파싱 오류:', e);
-      }
-      return null;
-    }
-  };
-  
-  // 사이트 감지 및 파서 실행
-  function detectAndParse() {
-    const hostname = window.location.hostname;
-    console.log('[STOCK CHECKER] 호스트명:', hostname);
-    
-    let result = null;
-    
-    if (hostname.includes('lotteon.com')) {
-      result = parsers.lotteon();
-    } else if (hostname.includes('lotteimall.com')) {
-      result = parsers.lotteimall();
-    } else if (hostname.includes('ssg.com')) {
-      result = parsers.ssg();
-    } else if (hostname.includes('ssfshop.com')) {
-      result = parsers.ssfshop();
-    } else if (hostname.includes('a-rt.com')) {
-      result = parsers.grandstage();
-    }
-    
-    return result;
+  window.__stockCheckerRunning = true;
+
+  // 현재 사이트 감지
+  const hostname = window.location.hostname;
+  let siteType = 'unknown';
+
+  if (hostname.includes('lotteon.com')) {
+    siteType = 'lotteon';
+    console.log('[재고][사이트] 롯데ON 감지');
+  } else if (hostname.includes('ellotte.com')) {
+    siteType = 'lottedb';
+    console.log('[재고][사이트] 롯데백화점 감지');
+  } else if (hostname.includes('thegrandstage.co.kr')) {
+    siteType = 'grandstage';
+    console.log('[재고][사이트] GrandStage 감지');
+  } else if (hostname.includes('ssg.com')) {
+    siteType = 'ssg';
+    console.log('[재고][사이트] SSG 감지');
+  } else if (hostname.includes('ssfshop.com')) {
+    siteType = 'ssfshop';
+    console.log('[재고][사이트] SSF Shop 감지');
+  } else if (hostname.includes('lottimall.com')) {
+    siteType = 'lottimall';
+    console.log('[재고][사이트] 롯데IMALL 감지');
+  } else {
+    alert('❌ 지원하지 않는 사이트입니다.\n\n지원 사이트:\n- 롯데ON\n- 롯데백화점\n- GrandStage\n- SSG\n- SSF Shop\n- 롯데IMALL');
+    window.__stockCheckerRunning = false;
+    return;
   }
-  
+
+  // 재고 데이터 파싱
+  let items = [];
+
+  try {
+    if (siteType === 'lotteon' || siteType === 'lottedb') {
+      items = parseLotteStock();
+    } else if (siteType === 'grandstage') {
+      items = parseGrandStageStock();
+    } else if (siteType === 'ssg') {
+      items = parseSSGStock();
+    } else if (siteType === 'ssfshop') {
+      items = parseSSFShopStock();
+    } else if (siteType === 'lottimall') {
+      items = parseLotteIMallStock();
+    }
+  } catch (error) {
+    console.error('[재고] 파싱 오류:', error);
+    alert('❌ 재고 정보를 가져오는 중 오류가 발생했습니다.\n\n' + error.message);
+    window.__stockCheckerRunning = false;
+    return;
+  }
+
+  console.log('[재고] 최종 items:', items);
+
+  if (items.length === 0) {
+    alert('⚠️ 재고 정보를 찾을 수 없습니다.\n\n페이지가 완전히 로딩된 후 다시 시도해주세요.');
+    window.__stockCheckerRunning = false;
+    return;
+  }
+
   // UI 렌더링
-  function renderUI(items) {
-    if (!items || items.length === 0) {
-      alert('❌ 이 사이트는 아직 자동 파싱을 지원하지 않습니다.\n\n현재 지원 사이트:\n- 롯데ON\n- 롯데백화점\n- 롯데IMALL\n- SSG\n- SSFShop\n- GrandStage');
-      return;
-    }
+  renderStockUI(items);
+
+  // ==============================================
+  // 롯데ON / 롯데백화점 파서
+  // ==============================================
+  function parseLotteStock() {
+    console.log('[재고][롯데] 파싱 시작');
     
+    const items = [];
+    
+    // Vue store에서 데이터 추출
+    const vueElements = document.querySelectorAll('[data-v-app]');
+    let vueStore = null;
+
+    for (let el of vueElements) {
+      if (el.__vue__ && el.__vue__.$store) {
+        vueStore = el.__vue__.$store;
+        break;
+      }
+    }
+
+    if (!vueStore) {
+      // body에서 찾기
+      if (document.body.__vue__ && document.body.__vue__.$store) {
+        vueStore = document.body.__vue__.$store;
+      }
+    }
+
+    if (!vueStore) {
+      throw new Error('Vue Store를 찾을 수 없습니다.');
+    }
+
+    console.log('[재고][롯데] Vue Store 발견');
+
+    const productData = vueStore.state.product;
+    if (!productData || !productData.optionInfo) {
+      throw new Error('상품 옵션 정보를 찾을 수 없습니다.');
+    }
+
+    const optionInfo = productData.optionInfo;
+    console.log('[재고][롯데] optionInfo:', optionInfo);
+
+    // 옵션 단계 확인
+    const hasOption1 = optionInfo.option1List && optionInfo.option1List.length > 0;
+    const hasOption2 = optionInfo.option2List && optionInfo.option2List.length > 0;
+
+    if (hasOption1 && hasOption2) {
+      // 2단계 옵션 (색상 × 사이즈)
+      console.log('[재고][롯데] 2단계 옵션 처리');
+      
+      optionInfo.option1List.forEach(opt1 => {
+        optionInfo.option2List.forEach(opt2 => {
+          const key = `${opt1.optValCd}_${opt2.optValCd}`;
+          const mapping = optionInfo.optionMappingInfo[key];
+          
+          if (mapping) {
+            items.push({
+              name: `${opt1.optValNm} / ${opt2.optValNm}`,
+              stock: mapping.stkQty || 0
+            });
+          }
+        });
+      });
+    } else if (hasOption1) {
+      // 1단계 옵션
+      console.log('[재고][롯데] 1단계 옵션 처리');
+      
+      optionInfo.option1List.forEach(opt => {
+        const mapping = optionInfo.optionMappingInfo[opt.optValCd];
+        
+        if (mapping) {
+          items.push({
+            name: opt.optValNm,
+            stock: mapping.stkQty || 0
+          });
+        }
+      });
+    } else {
+      // 단일 상품
+      console.log('[재고][롯데] 단일 상품 처리');
+      
+      const stkQty = productData.stkQty || 0;
+      items.push({
+        name: '단일 상품',
+        stock: stkQty
+      });
+    }
+
+    console.log('[재고][롯데] 파싱 완료:', items.length + '개');
+    return items;
+  }
+
+  // ==============================================
+  // GrandStage 파서
+  // ==============================================
+  function parseGrandStageStock() {
+    console.log('[재고][GrandStage] 파싱 시작');
+    
+    const items = [];
+    const selects = document.querySelectorAll('select[name*="option"], select.option-select');
+
+    if (selects.length === 0) {
+      throw new Error('옵션 선택 메뉴를 찾을 수 없습니다.');
+    }
+
+    selects.forEach(select => {
+      const options = select.querySelectorAll('option');
+      
+      options.forEach(option => {
+        const text = option.textContent.trim();
+        
+        // 기본 선택 옵션 제외
+        if (text.includes('선택') || text.includes('--') || option.value === '') {
+          return;
+        }
+
+        const isDisabled = option.disabled;
+        const stock = isDisabled ? 0 : 999;
+
+        items.push({
+          name: text,
+          stock: stock
+        });
+      });
+    });
+
+    console.log('[재고][GrandStage] 파싱 완료:', items.length + '개');
+    return items;
+  }
+
+  // ==============================================
+  // SSG 파서
+  // ==============================================
+  function parseSSGStock() {
+    console.log('[재고][SSG] 파싱 시작');
+    
+    const items = [];
+
+    // 방법 1: data-stock-qty 속성
+    const optionsWithStock = document.querySelectorAll('option[data-stock-qty]');
+    if (optionsWithStock.length > 0) {
+      optionsWithStock.forEach(option => {
+        const text = option.textContent.trim();
+        const stockQty = parseInt(option.getAttribute('data-stock-qty')) || 0;
+        
+        if (text && !text.includes('선택')) {
+          items.push({
+            name: text,
+            stock: stockQty
+          });
+        }
+      });
+      
+      console.log('[재고][SSG] 파싱 완료 (data-stock-qty):', items.length + '개');
+      return items;
+    }
+
+    // 방법 2: data-ob-stock-qty
+    const divsWithStock = document.querySelectorAll('div[data-ob-stock-qty]');
+    if (divsWithStock.length > 0) {
+      divsWithStock.forEach(div => {
+        const text = div.textContent.trim();
+        const stockQty = parseInt(div.getAttribute('data-ob-stock-qty')) || 0;
+        
+        if (text) {
+          items.push({
+            name: text,
+            stock: stockQty
+          });
+        }
+      });
+      
+      console.log('[재고][SSG] 파싱 완료 (data-ob-stock-qty):', items.length + '개');
+      return items;
+    }
+
+    // 방법 3: data-soldout
+    const optionsWithSoldout = document.querySelectorAll('option[data-soldout]');
+    if (optionsWithSoldout.length > 0) {
+      optionsWithSoldout.forEach(option => {
+        const text = option.textContent.trim();
+        const isSoldout = option.getAttribute('data-soldout') === 'Y';
+        
+        if (text && !text.includes('선택')) {
+          items.push({
+            name: text,
+            stock: isSoldout ? 0 : 999
+          });
+        }
+      });
+      
+      console.log('[재고][SSG] 파싱 완료 (data-soldout):', items.length + '개');
+      return items;
+    }
+
+    // 방법 4: disabled 여부로 판단
+    const allOptions = document.querySelectorAll('select[name*="option"] option, select.option-select option');
+    if (allOptions.length > 0) {
+      allOptions.forEach(option => {
+        const text = option.textContent.trim();
+        
+        if (text && !text.includes('선택') && option.value !== '') {
+          items.push({
+            name: text,
+            stock: option.disabled ? 0 : 999
+          });
+        }
+      });
+      
+      console.log('[재고][SSG] 파싱 완료 (disabled):', items.length + '개');
+      return items;
+    }
+
+    throw new Error('재고 정보를 찾을 수 없습니다.');
+  }
+
+  // ==============================================
+  // SSF Shop 파서
+  // ==============================================
+  function parseSSFShopStock() {
+    console.log('[재고][SSFShop] 파싱 시작');
+    
+    const items = [];
+
+    // React 기반 옵션 버튼
+    const optionButtons = document.querySelectorAll('button[class*="option"], button[class*="Option"], .option-item button');
+    
+    if (optionButtons.length > 0) {
+      optionButtons.forEach(btn => {
+        const text = btn.textContent.trim();
+        const isDisabled = btn.disabled || btn.classList.contains('disabled') || btn.classList.contains('soldout');
+        
+        if (text && !text.includes('선택')) {
+          items.push({
+            name: text,
+            stock: isDisabled ? 0 : 999
+          });
+        }
+      });
+      
+      console.log('[재고][SSFShop] 파싱 완료 (버튼):', items.length + '개');
+      return items;
+    }
+
+    // select 기반 옵션
+    const selects = document.querySelectorAll('select[name*="option"], select.option-select');
+    if (selects.length > 0) {
+      selects.forEach(select => {
+        const options = select.querySelectorAll('option');
+        
+        options.forEach(option => {
+          const text = option.textContent.trim();
+          
+          if (text && !text.includes('선택') && option.value !== '') {
+            items.push({
+              name: text,
+              stock: option.disabled ? 0 : 999
+            });
+          }
+        });
+      });
+      
+      console.log('[재고][SSFShop] 파싱 완료 (select):', items.length + '개');
+      return items;
+    }
+
+    throw new Error('옵션 정보를 찾을 수 없습니다.');
+  }
+
+  // ==============================================
+  // 롯데IMALL 파서
+  // ==============================================
+  function parseLotteIMallStock() {
+    console.log('[재고][롯데IMALL] 파싱 시작');
+    
+    const items = [];
+
+    // data-stock 속성 확인
+    const optionsWithStock = document.querySelectorAll('option[data-stock]');
+    
+    if (optionsWithStock.length > 0) {
+      optionsWithStock.forEach(option => {
+        const text = option.textContent.trim();
+        const stock = parseInt(option.getAttribute('data-stock')) || 0;
+        
+        if (text && !text.includes('선택')) {
+          items.push({
+            name: text,
+            stock: stock
+          });
+        }
+      });
+      
+      console.log('[재고][롯데IMALL] 파싱 완료 (data-stock):', items.length + '개');
+      return items;
+    }
+
+    // select 기반 옵션
+    const selects = document.querySelectorAll('select[name*="option"]');
+    if (selects.length > 0) {
+      selects.forEach(select => {
+        const options = select.querySelectorAll('option');
+        
+        options.forEach(option => {
+          const text = option.textContent.trim();
+          
+          if (text && !text.includes('선택') && option.value !== '') {
+            items.push({
+              name: text,
+              stock: option.disabled ? 0 : 999
+            });
+          }
+        });
+      });
+      
+      console.log('[재고][롯데IMALL] 파싱 완료 (select):', items.length + '개');
+      return items;
+    }
+
+    // 단일 상품
+    console.log('[재고][롯데IMALL] 단일 상품으로 처리');
+    items.push({
+      name: '단일 상품',
+      stock: 999
+    });
+
+    return items;
+  }
+
+  // ==============================================
+  // UI 렌더링
+  // ==============================================
+  function renderStockUI(items) {
+    // 기존 UI 제거
+    const existing = document.getElementById('stock-checker-overlay');
+    if (existing) {
+      existing.remove();
+    }
+
     const totalStock = items.reduce((sum, item) => sum + item.stock, 0);
     const optionCount = items.length;
-    
-    // Overlay
+
+    // 오버레이 생성
     const overlay = document.createElement('div');
-    overlay.id = 'stock-checker-ui';
+    overlay.id = 'stock-checker-overlay';
     overlay.style.cssText = `
       position: fixed;
       top: 0;
       left: 0;
-      width: 100%;
-      height: 100%;
+      right: 0;
+      bottom: 0;
       background: rgba(0, 0, 0, 0.5);
       z-index: 999999;
       display: flex;
@@ -235,109 +427,107 @@
       align-items: flex-start;
       padding: 20px;
     `;
-    
-    // Modal
-    const modal = document.createElement('div');
-    modal.style.cssText = `
+
+    // 팝업 생성
+    const popup = document.createElement('div');
+    popup.style.cssText = `
       background: white;
       border-radius: 12px;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-      width: 400px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      max-width: 400px;
       max-height: 80vh;
       overflow-y: auto;
-      padding: 24px;
+      padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     `;
-    
-    // Header
+
+    // 헤더
     const header = document.createElement('div');
     header.style.cssText = `
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 2px solid #e5e7eb;
+      border-bottom: 2px solid #f0f0f0;
+      padding-bottom: 15px;
+      margin-bottom: 15px;
     `;
     header.innerHTML = `
-      <h2 style="margin: 0; font-size: 20px; font-weight: 700; color: #111;">📦 재고 조회 결과</h2>
-      <button id="stock-checker-close" style="
-        background: #f3f4f6;
-        border: none;
-        border-radius: 6px;
-        width: 32px;
-        height: 32px;
-        cursor: pointer;
-        font-size: 18px;
-        color: #6b7280;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      ">✕</button>
+      <h2 style="margin: 0 0 10px 0; font-size: 20px; color: #333;">📦 재고조회</h2>
+      <div style="font-size: 14px; color: #666;">
+        <div style="margin-bottom: 5px;"><strong>총 재고:</strong> ${totalStock}개</div>
+        <div><strong>옵션 수:</strong> ${optionCount}개</div>
+      </div>
     `;
-    
-    // Summary
-    const summary = document.createElement('div');
-    summary.style.cssText = `
-      background: #f9fafb;
-      padding: 12px;
-      border-radius: 8px;
-      margin-bottom: 16px;
-      font-size: 14px;
-      color: #374151;
-    `;
-    summary.innerHTML = `
-      <div style="margin-bottom: 4px;"><strong>총 재고:</strong> ${totalStock.toLocaleString()}개</div>
-      <div><strong>옵션 수:</strong> ${optionCount}개</div>
-    `;
-    
-    // Items
+
+    // 옵션 리스트
     const list = document.createElement('div');
-    list.style.cssText = 'display: flex; flex-direction: column; gap: 8px;';
-    
+    list.style.cssText = `
+      max-height: calc(80vh - 150px);
+      overflow-y: auto;
+    `;
+
     items.forEach(item => {
+      const row = document.createElement('div');
       const hasStock = item.stock > 0;
-      const itemDiv = document.createElement('div');
-      itemDiv.style.cssText = `
+      const icon = hasStock ? '✅' : '❌';
+      const color = hasStock ? '#10b981' : '#ef4444';
+      const stockText = item.stock === 999 ? '재고있음' : `${item.stock}개`;
+
+      row.style.cssText = `
         padding: 12px;
+        margin-bottom: 8px;
         border-radius: 8px;
         background: ${hasStock ? '#f0fdf4' : '#fef2f2'};
-        border: 1px solid ${hasStock ? '#86efac' : '#fca5a5'};
+        border-left: 4px solid ${color};
         display: flex;
         justify-content: space-between;
         align-items: center;
+        font-size: 14px;
       `;
-      
-      itemDiv.innerHTML = `
-        <span style="font-size: 14px; color: #111; flex: 1;">${item.name}</span>
-        <span style="
-          font-weight: 700;
-          font-size: 16px;
-          color: ${hasStock ? '#16a34a' : '#dc2626'};
-        ">${item.stock.toLocaleString()}개</span>
+
+      row.innerHTML = `
+        <div style="flex: 1; color: #333;">
+          <span style="margin-right: 8px;">${icon}</span>
+          <span>${item.name}</span>
+        </div>
+        <div style="font-weight: bold; color: ${color};">
+          ${stockText}
+        </div>
       `;
-      
-      list.appendChild(itemDiv);
+
+      list.appendChild(row);
     });
-    
-    // Assemble
-    modal.appendChild(header);
-    modal.appendChild(summary);
-    modal.appendChild(list);
-    overlay.appendChild(modal);
+
+    // 닫기 안내
+    const footer = document.createElement('div');
+    footer.style.cssText = `
+      margin-top: 15px;
+      padding-top: 15px;
+      border-top: 2px solid #f0f0f0;
+      text-align: center;
+      font-size: 12px;
+      color: #999;
+    `;
+    footer.textContent = '화면을 클릭하면 닫힙니다';
+
+    // 조립
+    popup.appendChild(header);
+    popup.appendChild(list);
+    popup.appendChild(footer);
+    overlay.appendChild(popup);
+
+    // 오버레이 클릭 시 닫기 (팝업 내부 클릭은 제외)
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        window.__stockCheckerRunning = false;
+      }
+    });
+
+    // 팝업 클릭 시 이벤트 전파 방지
+    popup.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
     document.body.appendChild(overlay);
-    
-    // Close handlers
-    document.getElementById('stock-checker-close').onclick = () => overlay.remove();
-    overlay.onclick = (e) => {
-      if (e.target === overlay) overlay.remove();
-    };
-    
-    console.log('[STOCK CHECKER] UI 렌더링 완료');
+    console.log('[재고] UI 렌더링 완료');
   }
-  
-  // 실행
-  const stockData = detectAndParse();
-  renderUI(stockData);
-  
+
 })();
